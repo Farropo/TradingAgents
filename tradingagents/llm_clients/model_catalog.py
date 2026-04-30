@@ -99,7 +99,17 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
-    # OpenRouter: fetched dynamically. Azure: any deployed model name.
+    "openrouter": {
+        "quick": [
+            ("NVIDIA Nemotron 3 Super 120B A12B (free)", "nvidia/nemotron-3-super-120b-a12b:free"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("NVIDIA Nemotron 3 Super 120B A12B (free)", "nvidia/nemotron-3-super-120b-a12b:free"),
+            ("Custom model ID", "custom"),
+        ],
+    },
+    # Azure: any deployed model name.
     "ollama": {
         "quick": [
             ("Qwen3:latest (8B, local)", "qwen3:latest"),

@@ -151,7 +151,16 @@ def select_openrouter_model() -> str:
     """Select an OpenRouter model from the newest available, or enter a custom ID."""
     models = _fetch_openrouter_models()
 
-    choices = [questionary.Choice(name, value=mid) for name, mid in models[:5]]
+    recommended = (
+        "NVIDIA Nemotron 3 Super 120B A12B (free)",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+    )
+    choices = [questionary.Choice(recommended[0], value=recommended[1])]
+    choices.extend(
+        questionary.Choice(name, value=mid)
+        for name, mid in models[:5]
+        if mid != recommended[1]
+    )
     choices.append(questionary.Choice("Custom model ID", value="custom"))
 
     choice = questionary.select(

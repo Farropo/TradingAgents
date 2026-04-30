@@ -245,8 +245,13 @@ async function mockApi(page: Page) {
     if (path === '/api/config/defaults') {
       return json({
         paths: { ledger_db_path: 'data/ledger.sqlite' },
-        env: { FINNHUB_API_KEY: false, OPENAI_API_KEY: false },
+        env: { FINNHUB_API_KEY: false, OPENAI_API_KEY: false, OPENROUTER_API_KEY: false },
         providers: ['codex-assisted'],
+        llm: {
+          provider: 'openrouter',
+          quick_think_llm: 'nvidia/nemotron-3-super-120b-a12b:free',
+          deep_think_llm: 'nvidia/nemotron-3-super-120b-a12b:free',
+        },
         message: 'Local-only configuration.',
       });
     }

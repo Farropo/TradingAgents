@@ -26,6 +26,19 @@ export default function SettingsPage() {
         </table>
       </section>
       <section className="panel">
+        <h2>LLM runner</h2>
+        <table>
+          <tbody>
+            {Object.entries(settings.data?.llm ?? {}).map(([key, value]) => (
+              <tr key={key}>
+                <th>{key}</th>
+                <td className="path-cell">{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <section className="panel">
         <h2>Provider environment</h2>
         <table>
           <thead>

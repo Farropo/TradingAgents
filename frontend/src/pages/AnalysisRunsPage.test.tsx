@@ -6,8 +6,8 @@ import AnalysisRunsPage from './AnalysisRunsPage';
 vi.mock('../lib/api', () => ({
   analysisCapability: async () => ({
     normal_available: false,
-    selected_provider: 'openai',
-    missing_env: ['OPENAI_API_KEY'],
+    selected_provider: 'openrouter',
+    missing_env: ['OPENROUTER_API_KEY'],
     message: 'Use Codex Assisted for the no-API workflow.',
     recommended_mode: 'codex-assisted',
   }),

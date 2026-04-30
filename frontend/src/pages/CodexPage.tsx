@@ -38,9 +38,13 @@ export default function CodexPage() {
       <div className="page-title">
         <div>
           <h1>Codex Assisted</h1>
-          <p>Generate a no-API prompt bundle, paste it into Codex, then import the response.</p>
+          <p>Generate a full-role TradingAgents prompt bundle, paste it into Codex, then import the response.</p>
         </div>
       </div>
+      <section className="notice">
+        <strong>Full-role flow.</strong>
+        <span> The prompt asks Codex to simulate Analyst, Researcher, Trader, Risk Management and Portfolio Manager roles before producing the final decision.</span>
+      </section>
       <section className="panel">
         <h2><Bot size={18} /> Prepare bundle</h2>
         <div className="form-grid">

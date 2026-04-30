@@ -41,6 +41,7 @@ def test_health_and_defaults(monkeypatch, tmp_path):
     assert client.get("/api/health").json()["local_only"] is True
     defaults = client.get("/api/config/defaults").json()
     assert "ledger_db_path" in defaults["paths"]
+    assert defaults["llm"]["provider"]
     assert defaults["message"].startswith("Local-only")
 
 
@@ -109,7 +110,7 @@ def test_codex_bundle_import_and_dashboard(monkeypatch, tmp_path):
 
 def test_analysis_job_with_mocked_graph(monkeypatch, tmp_path):
     cfg = _configure_tmp(monkeypatch, tmp_path)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     class DummyGraph:
         def __init__(self, *args, **kwargs):
@@ -146,7 +147,7 @@ def test_analysis_job_with_mocked_graph(monkeypatch, tmp_path):
 
 def test_analysis_job_without_api_key_returns_clean_guidance(monkeypatch, tmp_path):
     _configure_tmp(monkeypatch, tmp_path)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     client = TestClient(create_app())
 
     capability = client.get("/api/analyses/capability")

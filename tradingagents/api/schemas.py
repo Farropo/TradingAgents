@@ -16,6 +16,7 @@ class DefaultsResponse(BaseModel):
     paths: dict[str, str]
     env: dict[str, bool]
     providers: list[str]
+    llm: dict[str, str]
     message: str
 
 

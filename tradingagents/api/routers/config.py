@@ -21,5 +21,10 @@ def defaults():
         },
         env=env_status(),
         providers=sorted(MODEL_OPTIONS.keys()),
+        llm={
+            "provider": cfg["llm_provider"],
+            "quick_think_llm": cfg["quick_think_llm"],
+            "deep_think_llm": cfg["deep_think_llm"],
+        },
         message="Local-only app. API keys are read by the backend environment and never returned.",
     )

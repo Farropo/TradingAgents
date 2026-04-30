@@ -22,8 +22,9 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.ledger.store import LedgerStore
 
 
-BUNDLE_VERSION = 1
+BUNDLE_VERSION = 2
 ANALYSIS_MODE = "codex-assisted"
+WORKFLOW_MODE = "codex-assisted-full-role"
 MODEL_HINT = "GPT-5.5 extra reasoning"
 DEFAULT_INDICATORS = (
     "close_50_sma",
@@ -91,6 +92,7 @@ def prepare_codex_analysis(
     bundle_body = {
         "bundle_version": BUNDLE_VERSION,
         "analysis_mode": ANALYSIS_MODE,
+        "workflow_mode": WORKFLOW_MODE,
         "model_hint": MODEL_HINT,
         "ticker": ticker,
         "trade_date": trade_date,
@@ -184,6 +186,7 @@ def import_codex_analysis(
 
     metadata = {
         "analysis_mode": ANALYSIS_MODE,
+        "workflow_mode": bundle.get("workflow_mode", WORKFLOW_MODE),
         "model_hint": bundle.get("model_hint", MODEL_HINT),
         "analysis_id": analysis_id,
         "ticker": ticker,
@@ -358,30 +361,88 @@ def _build_prompt(bundle: dict[str, Any]) -> str:
     compact_bundle = json.dumps(bundle, indent=2, ensure_ascii=False, default=str)
     return f"""# Codex-Assisted Trading Analysis Bundle
 
-You are GPT-5.5 with extra reasoning. Analyze the bundle below and produce a
-conservative, audit-friendly trading decision. Do not claim this is financial
-advice. Do not suggest submitting anything automatically to tax authorities.
+You are GPT-5.5 with extra reasoning. Run the full TradingAgents role workflow
+using only the bundle evidence below. Simulate the specialized agents as a
+structured internal investment committee: analysts gather evidence, researchers
+argue bull and bear cases, the trader proposes a transaction, risk managers
+challenge it, and the portfolio manager makes the final decision.
+
+Rules:
+- Do not claim this is financial advice.
+- Do not suggest submitting anything automatically to tax authorities.
+- Do not invent unavailable data; call it out as missing or requires_review.
+- Keep the discussion audit-friendly and conservative.
+- Make role disagreements explicit and resolve them in the final decision.
 
 Required output shape:
 
-## Research View
-- Bull case:
-- Bear case:
-- Key evidence:
+## Analyst Team
+### Market Analyst
+- Key observations:
+- Technical signals:
+- Data gaps:
 
-## Trader Proposal
+### News Analyst
+- Relevant news:
+- Sentiment:
+- Data gaps:
+
+### Fundamentals Analyst
+- Financial quality:
+- Valuation/quality notes:
+- Data gaps:
+
+### Social/Sentiment Analyst
+- Crowd/social signal:
+- Reliability:
+- Data gaps:
+
+## Researcher Team Debate
+### Bull Researcher
+- Thesis:
+- Evidence:
+- Weakest assumption:
+
+### Bear Researcher
+- Thesis:
+- Evidence:
+- Weakest assumption:
+
+### Research Manager
+- Debate synthesis:
+- Evidence score:
+- What would change the view:
+
+## Trader Agent
 **Action**: Buy | Hold | Sell
 **Reasoning**:
 **Entry Price**:
 **Stop Loss**:
 **Position Sizing**:
+**Execution Notes**:
 
-## Portfolio Decision
+## Risk Management Team
+### Conservative Risk Analyst
+- Objections:
+- Required safeguards:
+
+### Neutral Risk Analyst
+- Balanced assessment:
+- Conditions for action:
+
+### Aggressive Risk Analyst
+- Upside case:
+- Risk acceptance argument:
+
+## Portfolio Manager Decision
 **Rating**: Buy | Overweight | Hold | Underweight | Sell
 **Executive Summary**:
 **Investment Thesis**:
 **Price Target**:
 **Time Horizon**:
+**Approved Action**:
+**Maximum Position Size**:
+**Invalidation Conditions**:
 
 ## Risk And Fiscal Notes
 - Trading risks:
@@ -390,6 +451,7 @@ Required output shape:
 
 ## Audit Metadata
 - analysis_mode: {ANALYSIS_MODE}
+- workflow_mode: {bundle.get("workflow_mode", WORKFLOW_MODE)}
 - model_hint: {bundle.get("model_hint", MODEL_HINT)}
 - ticker: {bundle["ticker"]}
 - trade_date: {bundle["trade_date"]}
@@ -433,6 +495,7 @@ def _build_imported_report(
             "",
             "## Metadata",
             f"- analysis_mode: {ANALYSIS_MODE}",
+            f"- workflow_mode: {bundle.get('workflow_mode', WORKFLOW_MODE)}",
             f"- model_hint: {bundle.get('model_hint', MODEL_HINT)}",
             f"- ticker: {bundle['ticker']}",
             f"- trade_date: {bundle['trade_date']}",

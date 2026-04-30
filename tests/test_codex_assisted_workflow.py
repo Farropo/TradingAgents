@@ -50,6 +50,12 @@ def test_prepare_codex_analysis_writes_bundle_and_prompt(tmp_path):
     assert prepared.prompt_path.exists()
     prompt = prepared.prompt_path.read_text(encoding="utf-8")
     assert "Codex-Assisted Trading Analysis Bundle" in prompt
+    assert "full TradingAgents role workflow" in prompt
+    assert "## Analyst Team" in prompt
+    assert "## Researcher Team Debate" in prompt
+    assert "## Trader Agent" in prompt
+    assert "## Risk Management Team" in prompt
+    assert "## Portfolio Manager Decision" in prompt
     assert "GPT-5.5 with extra reasoning" in prompt
     assert "**Rating**: Buy | Overweight | Hold | Underweight | Sell" in prompt
 
@@ -75,7 +81,9 @@ def test_import_codex_analysis_records_report_ledger_and_memory(tmp_path):
 
     assert summary.rating == "Overweight"
     assert summary.report_path.exists()
-    assert "response_hash" in summary.report_path.read_text(encoding="utf-8")
+    report_text = summary.report_path.read_text(encoding="utf-8")
+    assert "response_hash" in report_text
+    assert "workflow_mode: codex-assisted-full-role" in report_text
 
     decisions = LedgerStore(cfg["ledger_db_path"]).list_decisions()
     assert len(decisions) == 1
