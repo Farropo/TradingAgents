@@ -24,8 +24,17 @@ from rich import box
 from rich.align import Align
 from rich.rule import Rule
 
+from tradingagents.codex_assisted import (
+    import_codex_analysis,
+    list_codex_analyses,
+    prepare_codex_analysis,
+)
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.ledger.exporters.irs import export_irs_csv, export_irs_json
+from tradingagents.ledger.importers.csv import CsvImportError, import_csv_to_store, preview_csv
+from tradingagents.ledger.store import LedgerStore
+from tradingagents.ledger.tax.pt import build_pt_tax_report
 from cli.models import AnalystType
 from cli.utils import *
 from cli.announcements import fetch_announcements, display_announcements
@@ -37,7 +46,20 @@ app = typer.Typer(
     name="TradingAgents",
     help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
     add_completion=True,  # Enable shell completion
+    invoke_without_command=True,
 )
+
+ledger_app = typer.Typer(
+    name="ledger",
+    help="Import trades, reconcile the local ledger, and export Portugal IRS support files.",
+)
+app.add_typer(ledger_app, name="ledger")
+
+codex_app = typer.Typer(
+    name="codex",
+    help="Prepare and import no-API Codex-assisted analysis bundles.",
+)
+app.add_typer(codex_app, name="codex")
 
 
 # Create a deque to store recent messages with a maximum length
@@ -1195,6 +1217,226 @@ def run_analysis(checkpoint: bool = False):
     display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
     if display_choice in ("Y", "YES", ""):
         display_complete_report(final_state)
+
+
+def _ledger_store(db_path: Optional[Path] = None) -> LedgerStore:
+    return LedgerStore(db_path or DEFAULT_CONFIG["ledger_db_path"])
+
+
+def _render_events_table(events, max_rows: int = 25) -> Table:
+    table = Table(title=f"Ledger Events ({len(events)})", box=box.SIMPLE)
+    for column in ("Date", "Type", "Side", "Asset", "Qty", "Price", "Broker", "Review"):
+        table.add_column(column)
+    for event in events[:max_rows]:
+        table.add_row(
+            event.timestamp.date().isoformat(),
+            event.event_type.value,
+            event.side.value if event.side else "",
+            f"{event.asset_type.value}:{event.symbol}",
+            str(event.quantity),
+            str(event.price or ""),
+            event.broker or "",
+            "yes" if event.requires_review else "",
+        )
+    return table
+
+
+@ledger_app.command("preview-csv")
+def ledger_preview_csv(
+    file: Path = typer.Argument(..., exists=True, readable=True, help="Broker/exchange CSV export."),
+    profile: str = typer.Option("generic", "--profile", help="CSV profile name or JSON/YAML profile path."),
+):
+    preview = preview_csv(file, profile)
+    console.print(_render_events_table(preview.events))
+    if preview.errors:
+        console.print("[red]Import errors:[/red]")
+        for error in preview.errors:
+            console.print(f"  - {error}")
+        raise typer.Exit(1)
+    console.print(f"[green]Preview OK:[/green] {len(preview.events)} event(s)")
+
+
+@ledger_app.command("import-csv")
+def ledger_import_csv(
+    file: Path = typer.Argument(..., exists=True, readable=True, help="Broker/exchange CSV export."),
+    profile: str = typer.Option("generic", "--profile", help="CSV profile name or JSON/YAML profile path."),
+    db_path: Optional[Path] = typer.Option(None, "--db-path", help="Override ledger SQLite path."),
+):
+    store = _ledger_store(db_path)
+    try:
+        summary = import_csv_to_store(file, store, profile)
+    except CsvImportError as exc:
+        console.print(f"[red]Import failed:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(
+        "[green]Import complete[/green] "
+        f"batch={summary.batch_id} rows={summary.row_count} "
+        f"inserted={summary.inserted_count} skipped={summary.skipped_count}"
+    )
+
+
+@ledger_app.command("list")
+def ledger_list(
+    year: Optional[int] = typer.Option(None, "--year", help="Filter by event year."),
+    broker: Optional[str] = typer.Option(None, "--broker", help="Filter by broker/exchange."),
+    account: Optional[str] = typer.Option(None, "--account", help="Filter by account/wallet."),
+    db_path: Optional[Path] = typer.Option(None, "--db-path", help="Override ledger SQLite path."),
+):
+    events = _ledger_store(db_path).list_events(year=year, broker=broker, account=account)
+    console.print(_render_events_table(events, max_rows=200))
+
+
+@ledger_app.command("tax-summary")
+def ledger_tax_summary(
+    year: int = typer.Option(..., "--year", help="Tax year to summarize."),
+    db_path: Optional[Path] = typer.Option(None, "--db-path", help="Override ledger SQLite path."),
+):
+    events = _ledger_store(db_path).list_events()
+    report = build_pt_tax_report(events, year=year)
+
+    totals_table = Table(title=f"Portugal Tax Summary {year}", box=box.SIMPLE)
+    totals_table.add_column("Treatment")
+    totals_table.add_column("Proceeds EUR", justify="right")
+    totals_table.add_column("Cost Basis EUR", justify="right")
+    totals_table.add_column("Gain EUR", justify="right")
+    for treatment, totals in report.totals_by_treatment().items():
+        totals_table.add_row(
+            treatment,
+            totals["proceeds_eur"],
+            totals["cost_basis_eur"],
+            totals["gain_eur"],
+        )
+    console.print(totals_table)
+
+    review_count = sum(1 for row in report.rows if row.requires_review)
+    console.print(
+        f"[cyan]Rows:[/cyan] {len(report.rows)}  "
+        f"[cyan]Review required:[/cyan] {review_count}  "
+        f"[cyan]Inventory lots:[/cyan] {len(report.inventory)}"
+    )
+
+
+@ledger_app.command("export-irs")
+def ledger_export_irs(
+    year: int = typer.Option(..., "--year", help="Tax year to export."),
+    output_format: str = typer.Option("csv", "--format", help="csv or json."),
+    output: Optional[Path] = typer.Option(None, "--output", help="Output file path."),
+    db_path: Optional[Path] = typer.Option(None, "--db-path", help="Override ledger SQLite path."),
+):
+    fmt = output_format.lower()
+    if fmt not in {"csv", "json"}:
+        console.print("[red]--format must be csv or json[/red]")
+        raise typer.Exit(1)
+    output_path = output or (Path.cwd() / f"irs_pt_{year}.{fmt}")
+    report = build_pt_tax_report(_ledger_store(db_path).list_events(), year=year)
+    if fmt == "csv":
+        written = export_irs_csv(report, output_path)
+    else:
+        written = export_irs_json(report, output_path)
+    console.print(f"[green]Exported:[/green] {written.resolve()}")
+
+
+@ledger_app.command("reconcile")
+def ledger_reconcile(
+    year: Optional[int] = typer.Option(None, "--year", help="Tax year to inspect."),
+    db_path: Optional[Path] = typer.Option(None, "--db-path", help="Override ledger SQLite path."),
+):
+    events = _ledger_store(db_path).list_events()
+    report = build_pt_tax_report(events, year=year)
+    review_events = [event for event in events if event.requires_review]
+    review_rows = [row for row in report.rows if row.requires_review]
+    console.print(f"[cyan]Events:[/cyan] {len(events)}")
+    console.print(f"[cyan]Events requiring review:[/cyan] {len(review_events)}")
+    console.print(f"[cyan]Tax rows requiring review:[/cyan] {len(review_rows)}")
+    console.print(f"[cyan]Open inventory lots:[/cyan] {len(report.inventory)}")
+    if report.review_notes:
+        console.print("[yellow]Notes:[/yellow]")
+        for note in report.review_notes:
+            console.print(f"  - {note}")
+
+
+@codex_app.command("prepare-analysis")
+def codex_prepare_analysis(
+    ticker: str = typer.Option(..., "--ticker", help="Ticker to analyze."),
+    analysis_date: str = typer.Option(..., "--date", help="Analysis date in YYYY-MM-DD format."),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Override Codex-assisted output directory."),
+    lookback_days: int = typer.Option(30, "--lookback-days", help="Market data lookback window."),
+    indicator_lookback_days: int = typer.Option(10, "--indicator-lookback-days", help="Technical indicator lookback window."),
+    no_fundamentals: bool = typer.Option(False, "--no-fundamentals", help="Skip fundamentals/financial statements."),
+):
+    try:
+        bundle = prepare_codex_analysis(
+            ticker=ticker,
+            trade_date=analysis_date,
+            output_dir=output_dir,
+            lookback_days=lookback_days,
+            indicator_lookback_days=indicator_lookback_days,
+            include_fundamentals=not no_fundamentals,
+        )
+    except Exception as exc:
+        console.print(f"[red]Could not prepare Codex bundle:[/red] {exc}")
+        raise typer.Exit(1)
+
+    console.print("[green]Codex-assisted bundle prepared.[/green]")
+    console.print(f"[cyan]Bundle ID:[/cyan] {bundle.bundle_id}")
+    console.print(f"[cyan]Bundle JSON:[/cyan] {bundle.bundle_json_path.resolve()}")
+    console.print(f"[cyan]Prompt file:[/cyan] {bundle.prompt_path.resolve()}")
+    console.print(f"[cyan]Prompt hash:[/cyan] {bundle.prompt_hash}")
+    console.print("\nPaste the prompt.md contents into this Codex thread, then save the response as codex_response.md in the same folder or pass --bundle when importing.")
+
+
+@codex_app.command("import-analysis")
+def codex_import_analysis(
+    response_file: Path = typer.Argument(..., exists=True, readable=True, help="Markdown or JSON response saved from Codex."),
+    bundle: Optional[Path] = typer.Option(None, "--bundle", exists=True, readable=True, help="Path to bundle.json if not next to response_file."),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Override Codex-assisted output directory."),
+):
+    try:
+        summary = import_codex_analysis(
+            response_file=response_file,
+            bundle_file=bundle,
+            output_dir=output_dir,
+        )
+    except Exception as exc:
+        console.print(f"[red]Could not import Codex response:[/red] {exc}")
+        raise typer.Exit(1)
+
+    console.print("[green]Codex-assisted analysis imported.[/green]")
+    console.print(f"[cyan]Analysis ID:[/cyan] {summary.analysis_id}")
+    console.print(f"[cyan]Rating:[/cyan] {summary.rating}")
+    console.print(f"[cyan]Report:[/cyan] {summary.report_path.resolve()}")
+    console.print(f"[cyan]Saved response:[/cyan] {summary.response_path.resolve()}")
+    console.print(f"[cyan]DecisionLink ID:[/cyan] {summary.decision_link_id}")
+    console.print(f"[cyan]Bundle hash:[/cyan] {summary.bundle_hash}")
+    console.print(f"[cyan]Response hash:[/cyan] {summary.response_hash}")
+
+
+@codex_app.command("list")
+def codex_list(
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Override Codex-assisted output directory."),
+):
+    analyses = list_codex_analyses(output_dir=output_dir)
+    table = Table(title=f"Codex-Assisted Analyses ({len(analyses)})", box=box.SIMPLE)
+    for column in ("Date", "Ticker", "Rating", "Model", "Analysis ID", "Report"):
+        table.add_column(column)
+    for item in analyses:
+        table.add_row(
+            item.get("trade_date", ""),
+            item.get("ticker", ""),
+            item.get("rating", ""),
+            item.get("model_hint", ""),
+            item.get("analysis_id", ""),
+            item.get("report_path", ""),
+        )
+    console.print(table)
+
+
+@app.callback()
+def main(
+    ctx: typer.Context,
+):
+    if ctx.invoked_subcommand is None:
+        run_analysis(checkpoint=False)
 
 
 @app.command()

@@ -18,6 +18,7 @@ from tradingagents.llm_clients import create_llm_client
 from tradingagents.agents import *
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.agents.utils.memory import TradingMemoryLog
+from tradingagents.ledger.store import LedgerStore
 from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
@@ -118,6 +119,8 @@ class TradingAgentsGraph:
         self.propagator = Propagator()
         self.reflector = Reflector(self.quick_thinking_llm)
         self.signal_processor = SignalProcessor(self.quick_thinking_llm)
+        ledger_db_path = self.config.get("ledger_db_path")
+        self.ledger_store = LedgerStore(ledger_db_path) if ledger_db_path else None
 
         # State tracking
         self.curr_state = None
@@ -329,7 +332,7 @@ class TradingAgentsGraph:
         self.curr_state = final_state
 
         # Log state to disk.
-        self._log_state(trade_date, final_state)
+        state_log_path = self._log_state(trade_date, final_state)
 
         # Store decision for deferred reflection on the next same-ticker run.
         self.memory_log.store_decision(
@@ -338,13 +341,22 @@ class TradingAgentsGraph:
             final_trade_decision=final_state["final_trade_decision"],
         )
 
+        decision_signal = self.process_signal(final_state["final_trade_decision"])
+        self._record_ledger_decision(
+            ticker=company_name,
+            trade_date=trade_date,
+            rating=decision_signal,
+            final_trade_decision=final_state["final_trade_decision"],
+            state_log_path=state_log_path,
+        )
+
         # Clear checkpoint on successful completion to avoid stale state.
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
                 self.config["data_cache_dir"], company_name, str(trade_date)
             )
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        return final_state, decision_signal
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
@@ -385,6 +397,29 @@ class TradingAgentsGraph:
         log_path = directory / f"full_states_log_{trade_date}.json"
         with open(log_path, "w", encoding="utf-8") as f:
             json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+        return log_path
+
+    def _record_ledger_decision(
+        self,
+        ticker: str,
+        trade_date: str,
+        rating: str,
+        final_trade_decision: str,
+        state_log_path: Path | None = None,
+    ) -> None:
+        """Record the PM decision in the tax ledger without blocking analysis."""
+        if not self.ledger_store:
+            return
+        try:
+            self.ledger_store.record_decision(
+                ticker=ticker,
+                trade_date=str(trade_date),
+                rating=rating,
+                decision_text=final_trade_decision,
+                state_log_path=state_log_path,
+            )
+        except Exception as exc:
+            logger.warning("Could not record ledger decision for %s on %s: %s", ticker, trade_date, exc)
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""

@@ -7,6 +7,9 @@ DEFAULT_CONFIG = {
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
+    "ledger_db_path": os.getenv("TRADINGAGENTS_LEDGER_DB_PATH", os.path.join(_TRADINGAGENTS_HOME, "ledger", "trading_ledger.sqlite")),
+    "codex_assisted_dir": os.getenv("TRADINGAGENTS_CODEX_ASSISTED_DIR", os.path.join(_TRADINGAGENTS_HOME, "codex_assisted")),
+    "market_watchlists_path": os.getenv("TRADINGAGENTS_MARKET_WATCHLISTS_PATH", os.path.join(_TRADINGAGENTS_HOME, "watchlists", "markets.json")),
     # Optional cap on the number of resolved memory log entries. When set,
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
